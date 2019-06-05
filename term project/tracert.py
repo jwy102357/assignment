@@ -1,8 +1,6 @@
-import os
 import socket
 import argparse
 import struct
-import sys
 import time
 import random
 
@@ -10,11 +8,13 @@ ETH_P_ALL = 0x0003
 ETH_SIZE = 14
 
 class CIPheader :
-   def __init__(self, dst, src='0') :
+   def __init__(self, dst, idt = random.randint(1, 65000), src='0') :
       self.dst = dst
       self.src = src
+      self.id = idt
       self.raw = None
       self.createIPHeader()
+      self.raw = self.assemble()
 
    def assemble(self) :
       self.raw = struct.pack('!BBHHHBBH4s4s', 
@@ -34,11 +34,10 @@ class CIPheader :
    def createIPHeader(self) :
       version = 4
       HeaderLength = 5
-      print('dst = %s' %self.dst)
       self.version = (version << 4) + HeaderLength
       self.tos = 0
       self.totalLength = 0
-      self.id = 0
+      self.id = self.id
       self.flag = 0
       self.ttl = 255
       self.prototype = 17
@@ -50,19 +49,18 @@ class CIPheader :
       oList = struct.unpack('!BBHHHBBH4B4B', self.raw)
       oDict = {}
       
-      oDict['Version'] = oList[0]
-      oDict['HeaderLength'] = (oList[0] % 16)
-      oDict['Tos'] = oList[1]
-      oDict['TotalLength'] = oList[2]
-      oDict['Id'] = oList[3]
-      oDict['Flag'] = oList[4] >> 13
+      oDict['Version'] = self.version
+      oDict['HeaderLength'] = 5
+      oDict['Tos'] = self.tos
+      oDict['TotalLength'] = self.totalLength
+      oDict['Id'] = self.id
+      oDict['Flag'] = self.flag
       oDict['Offset'] = oList[4] & 0x1fff
-      oDict['TTL'] = oList[5]
-      oDict['Protocol'] = oList[6]
-      oDict['Chksum'] = oList[7]
-      oDict['src'] = socket.inet_aton(self.src)
-      oDict['dst'] = socket.inet_aton(self.src)
-      print(oDict['src'])
+      oDict['TTL'] = self.ttl
+      oDict['Protocol'] = self.prototype
+      oDict['Chksum'] = self.chksum
+      oDict['src'] = self.saddr
+      oDict['dst'] = self.daddr
       return oDict
 
 class CICMPheader :
@@ -123,14 +121,14 @@ class CICMPheader :
       return result
 
 class CUDPheader :
-   def __init__(self, size, iph, dst, src = 0, length = 0, udpChksum = 0, data = '') :
+   def __init__(self, size, iph, dst, src = random.randint(34000, 59000), length = 0, udpChksum = 0, data = '') :
+      self.size = size
+      self.iph = iph
       self.src = src
       self.dst = dst
       self.length = size - 20
       self.udpChksum = udpChksum
       self.data = data
-      self.size = size
-      self.iph = iph
       self.createUDPHeader()
 
    def createUDPHeader(self) :
@@ -181,89 +179,16 @@ class CUDPheader :
       result = ~csum
       result = result & 0xffff
       result = result >> 8 | (result << 8 & 0xff00)
-      print("%04x" %result)
       return result
 
 def makeData(size) :
-   datalen = size - 28 if size > 28 else  1
+   datalen = (size - 28 if size > 28 else  28)
    data = ''
    for i in range(datalen) :
       data += 'A'
    return data
 
-def run(dst, size, c, pt, port = 0) :
-   for i in range(6, c+2) :
-      sender(dst, size, i, pt, port)
-      receiver(dst)
-      print('c = %d' %(i-1))
-
-def sender(dst, size, c, pt, port = 0) :
-   with socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW) as sock:
-      sock.connect((dst,0))
-
-      iph = CIPheader(dst)
-
-      if pt == 'u' :
-         iph.prototype = 17
-         ia = iph.assemble()
-         uh = CUDPheader(size = size, iph = iph, dst = port)
-         iph.ttl = c
-         data = ia + uh.raw + uh.data.encode()
-         sock.send(data)
-      elif pt == 'i' :
-         iph.prototype = 1
-         ciph = CICMPheader(size = size)
-         iph.ttl = c
-         data = iph.assemble() + ciph.raw + ciph.data.encode()
-         sock.send(data)
-
-def receiver(dst) :
-   with socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP) as sock:
-
-      try :
-         sock.settimeout(1)
-         data = sock.recv(65535)
-         dumpcode(data)
-      except :
-         None
-
-def dumpcode(buf):
-	print("%7s"% "offset ", end='')
-
-	for i in range(0, 16):
-		print("%02x " % i, end='')
-
-		if not (i%16-7):
-			print("- ", end='')
-
-	print("")
-
-	for i in range(0, len(buf)):
-		if not i%16:
-			print("0x%04x" % i, end= ' ')
-
-		print("%02x" % buf[i], end= ' ')
-
-		if not (i % 16 - 7):
-			print("- ", end='')
-
-		if not (i % 16 - 15):
-			print(" ")
-
-	print("")
-
-if __name__ == '__main__':
-   parser = argparse.ArgumentParser()
-   parser.add_argument('host')
-   parser.add_argument('size', type = int)
-   parser.add_argument('-t', help = 'RECV_TIMEOUT', required = False, default = 10, type = int)
-   parser.add_argument('-c', help = 'MAX_HOPS', required = False, default = 10, type = int)
-   parser.add_argument('-u', required = False, action = 'store_true')
-   parser.add_argument('-i', required = False, action = 'store_true')
-   parser.add_argument('-p', help = 'port', required = False, default = 10050, type = int)
-
-   args = parser.parse_args()
-
+def run(dst, size, t, c, pt, port = 33435) :
    try :
       _host = args.host
       _ip = socket.gethostbyname(_host)
@@ -277,9 +202,134 @@ if __name__ == '__main__':
       pass
 
    finally :
-      print('end')
+      print('traceroute to %s (%s), %d hops max, %d byte packets' %(dst, _ip, c, size))
+   
+   port = port
+   dst = _ip
+   data = None
+   ds = ''
+   sqnum = random.randint(1, 64)
+   ridt = random.randint(1, 65000)
+   for i in range(1, c+1) :
+      print('%2d' %i, end = '\t')
+      for j in range(0, 3) :
+         idt, myaddr = sender(dst, size, ridt, sqnum, i, pt, port)
+         port += 1
+         sqnum += 1
+         data = receiver(idt, myaddr, t, pt, port)
+         if data != None :
+            dt = struct.unpack('!4B', data[12:16]) # source ip address
+            ds = str(str(dt[0])+'.'+str(dt[1])+'.'+str(dt[2])+'.'+str(dt[3])) # 문자열로 합침
+      if ds != '' :
+         print('[%s, %s]' %(socket.getfqdn(ds), ds))
+         ds = ''
+      else :
+         print('')
+      if data != None :
+         if data[20] == 0 : # icmp type echo reply
+            break
+
+def sender(dst, size, ridt, sqnum, c, pt, port) :
+   idt = 0
+   adr = ''
+   with socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW) as sock:
+      sock.connect((dst,0))
+      adr = sock.getsockname()[0]
+      iph = CIPheader(dst, idt = ridt, src = adr)
+
+      if pt == 'u' :
+         iph.prototype = 17
+         uh = CUDPheader(size = size, iph = iph, dst = port, src = random.randint(34000, 59000))
+         iph.ttl = c
+         data = iph.assemble() + uh.raw + uh.data.encode()
+         sock.send(data)
+         idt = iph.id
+      elif pt == 'i' :
+         iph.prototype = 1
+         icph = CICMPheader(size = size, icmpSeq = sqnum)
+         iph.ttl = c
+         data = iph.assemble() + icph.raw + icph.data.encode()
+         sock.send(data)
+         idt = icph.icmpId
+   return idt, adr
+      
+def receiver(idt, myaddr, t, pt, port) :
+   start = time.time()
+   getData = False
+   data = None
+
+   with socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP) as sock :
+      try :
+         sock.settimeout(t)
+         data = sock.recv(65535)
+         dt = struct.unpack('!4B', data[16:20])    # destination ip adrees
+         adr = str(str(dt[0])+'.'+str(dt[1])+'.'+str(dt[2])+'.'+str(dt[3]))   # 문자열로 합침
+         
+         if myaddr != adr :     # destination ip adrees
+            print('       *', end='\t')
+            return None
+         else :
+            if pt == 'i' :    #icmp
+               if data[20] == 11 : # icmp type ttl exceeded
+                  if data[52]*256 + data[53] != idt :    # icmp id 불일치
+                     print('       *', end='\t')
+                     return None
+               if data[20] == 0 : #icmp type echo reply
+                  if data[24]*256 + data[25] != idt :    # icmp id 불일치
+                     print('       *', end='\t')
+                     return None
+            if pt == 'u' :    # udp
+               if data[20] == 11 : # icmp type ttl exceeded
+                  if data[32]*256 + data[33] != idt : # ip header id 불일치
+                     print('       *', end='\t')
+                     return None
+         
+         getData = True
+         print('%5.2f ms' %((time.time()-start)*1000), end = '\t')
+      except :
+         print('       *', end='\t')
+
+   if getData == True :
+      return data
+
+def dumpcode(buf):
+   print("%7s"% "offset ", end='')
+
+   for i in range(0, 16):
+      print("%02x " % i, end='')
+
+      if not (i%16-7):
+         print("- ", end='')
+
+   print("")
+
+   for i in range(0, len(buf)):
+      if not i%16:
+         print("0x%04x" % i, end= ' ')
+
+      print("%02x" % buf[i], end= ' ')
+
+      if not (i % 16 - 7):
+         print("- ", end='')
+
+      if not (i % 16 - 15):
+         print(" ")
+
+   print("")
+
+if __name__ == '__main__':
+   parser = argparse.ArgumentParser()
+   parser.add_argument('host')
+   parser.add_argument('size', type = int)
+   parser.add_argument('-t', help = 'RECV_TIMEOUT', required = False, default = 0.5, type = float)
+   parser.add_argument('-c', help = 'MAX_HOPS', required = False, default = 10, type = int)
+   parser.add_argument('-u', required = False, action = 'store_true')
+   parser.add_argument('-i', required = False, action = 'store_true')
+   parser.add_argument('-p', help = 'port', required = False, default = 53345, type = int)
+
+   args = parser.parse_args()
 
    if args.u :
-      run(_ip, args.size, args.c, 'u', args.p)
+      run(args.host, args.size, args.t, args.c, 'u', args.p)
    elif args.i :
-      run(_ip, args.size, args.c, 'i')
+      run(args.host, args.size, args.t, args.c, 'i')
