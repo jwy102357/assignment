@@ -4,9 +4,6 @@ import struct
 import time
 import random
 
-ETH_P_ALL = 0x0003
-ETH_SIZE = 14
-
 class CIPheader :
    def __init__(self, dst, idt = random.randint(1, 65000), src='0') :
       self.dst = dst
@@ -291,31 +288,6 @@ def receiver(idt, myaddr, t, pt, port) :
 
    if getData == True :
       return data
-
-def dumpcode(buf):
-   print("%7s"% "offset ", end='')
-
-   for i in range(0, 16):
-      print("%02x " % i, end='')
-
-      if not (i%16-7):
-         print("- ", end='')
-
-   print("")
-
-   for i in range(0, len(buf)):
-      if not i%16:
-         print("0x%04x" % i, end= ' ')
-
-      print("%02x" % buf[i], end= ' ')
-
-      if not (i % 16 - 7):
-         print("- ", end='')
-
-      if not (i % 16 - 15):
-         print(" ")
-
-   print("")
 
 if __name__ == '__main__':
    parser = argparse.ArgumentParser()
